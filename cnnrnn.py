@@ -58,43 +58,41 @@ def add_score_and_imagetensor_to_array(path, array):
 trainingdata = []
 
 add_score_and_imagetensor_to_array("mainstreams/zec/zec4/", trainingdata)
-add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
-add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
-add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
+# add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
+# add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
+# add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
 
 
 #sort by filename
 trainingdata.sort(key=lambda x: x[0])
 
-trainingdataset = torch.utils.data.TensorDataset(torch.stack([x[1] for x in trainingdata]), torch.stack([x[2] for x in trainingdata]))
-trainingdataloader = torch.utils.data.DataLoader(trainingdataset, batch_size=100,  num_workers=2)
+sequencedata = []
 
-print( len(trainingdata) )
+inputstack = []
+labelstack = []
 
+#split training data into an array of 100 tensors
+for (name, input, label) in trainingdata:
+    inputstack.append(input)
+    labelstack.append(label)
 
-
-# import random
-
-# r = list(range(len(trainingdataloader)))
-# random.shuffle(r)
-# for batchindex in r:
-
-#     data = trainingdataloader[batchindex]
-
-#     #     print(batchindex)
-
-#     # #enumerate and shuffle
-#     # for i, data in enumerate(trainingdataloader, 0):
-    
-# exit()
+    if len(inputstack) == 200:
+        sequencedata.append([inputstack, labelstack])
+        
+        inputstack = []
+        labelstack = []
 
 
-# testingdata = []
-# add_score_and_imagetensor_to_array("mainstreams/zet/secondzetcomm/", torch.FloatTensor([1]), testingdata)
-# print( len(testingdata) )
-# testingdata.sort(key=lambda x: x[0])
-# testingdataset = torch.utils.data.TensorDataset(torch.stack([x[1] for x in testingdata]), torch.stack([x[2] for x in testingdata]))
-# testingdataloader = torch.utils.data.DataLoader(testingdataset, batch_size=500,  num_workers=2)
+# trainingdata = newtrainingdata
+
+#shuffle the training data
+random.shuffle(sequencedata)
+
+#trainingdataset = torch.utils.data.TensorDataset(torch.stack([x[1] for x in trainingdata]), torch.stack([x[2] for x in trainingdata]))
+# trainingdataloader = torch.utils.data.DataLoader(trainingdataset, batch_size=100,  num_workers=2)
+
+# print( len(trainingdata) )
+
 
 
 
@@ -121,14 +119,21 @@ class LSTM(torch.nn.Module):
         self.fc3 = torch.nn.Linear(200, input_size)
     
     def forward(self, x, hidden=None):
+
+        #shape of [10, 3, 64, 64]
+
         x = self.pool(torch.nn.functional.relu(self.conv1(x)))
         x = self.pool(torch.nn.functional.relu(self.conv2(x)))
         x = x.view(-1, 16 * 13 * 13)
         x = torch.nn.functional.relu(self.fc1(x))
         x = torch.nn.functional.relu(self.fc2(x))
         x = self.fc3(x)
-        
+
+        x = x.unsqueeze(0)
+
+
         out, hidden = self.lstm(x, hidden)
+
         out = torch.nn.functional.relu(self.lfc1(out))
         out = self.lfc2(out)
         
@@ -137,8 +142,58 @@ class LSTM(torch.nn.Module):
 
 lstm = LSTM(120, 120, 2)
 
-criterion = torch.nn.MSELoss()
+
+criterion = torch.nn.L1Loss()
 optimizer = torch.optim.Adam(lstm.parameters(), lr=0.0001 )
+
+#torch.autograd.set_detect_anomaly(True)
+
+#input = trainingdata[0][1]
+
+
+average = 0.0
+counter = 0
+
+#create a stack of 10 inputs
+
+for epoch in range(10):
+
+
+
+    for (inputstack, labelstack) in sequencedata:
+
+        input = torch.stack(inputstack)
+        labels = torch.stack(labelstack)
+        labels = labels.unsqueeze(0)
+        #input with shape [10, 3, 64, 64]
+
+        output, _ = lstm(input, None)
+
+        print(output.shape)
+
+        lstm.zero_grad()
+
+        loss = criterion(output, labels)
+
+        print( loss.shape )
+
+        average += loss.item()
+
+        loss.backward()
+
+        optimizer.step()
+
+        counter += 1
+        if counter % 10 == 0:
+            print("loss: " + str(average / 10))
+            average = 0.0
+
+
+
+
+exit()
+
+
 
 
 #train the LSTM
@@ -149,53 +204,40 @@ for epoch in range(10):
     accuracy = 0.0
 
 
-    # r = list(range(len(trainingdataloader)))
-    # random.shuffle(r)
-    # for batchindex in r:
+    for i, data in enumerate(trainingdata, 0):
 
-    #     data = trainingdataloader[batchindex]
+        hidden = None
 
-    #     #     print(batchindex)
-
-    #     #enumerate and shuffle
-    
-    for i, data in enumerate(trainingdataloader, 0):
-
-        input, labels = data
-
-        lstm.zero_grad()
-
-        outputs, _ = lstm(input)
-
-        loss = criterion(outputs, labels)
-        average += loss.item()
-
-        loss.backward()
-        optimizer.step()
-
-        displayevery = 50
-
-        if i % displayevery == displayevery - 1:
-            print('[%d, %5d] loss: %.3f' %
-                  (epoch + 1, i + 1, average / displayevery))
-            average = 0.0
+        for x in data:
 
 
-            # correct = 0
-            # total = 0
-            # with torch.no_grad():
-            #     for data in testingdataloader:
-            #         images, labels = data
-            #         outputs, _ = lstm(images)
+            stackedtensor = torch.stack([data[1], data[2]])
+            
+            _, inputs, labels = stackedtensor
 
-            #         loss = criterion(outputs, labels)
-                    
-            #         loss = torch.sum(loss, dim=0)
+            lstm.zero_grad()
 
-            #         correct += loss
-            #         total += labels.size(0)
-                    
-            # print( f"testing score {correct / total}" )
+            outputs, newhidden = lstm(inputs, hidden)
+
+            hidden = newhidden
+
+            loss = criterion(outputs, labels)
+            average += loss.item()
+
+            loss.backward(retain_graph=True)
+            
+
+            displayevery = 100
+
+            if i % displayevery == displayevery - 1:
+                print('[%d, %5d] loss: %.3f' %
+                    (epoch + 1, i + 1, average / displayevery))
+                average = 0.0
+
+                optimizer.step()
+                hidden = None
+
+
 
 
 #save the model
