@@ -35,7 +35,8 @@ def add_score_and_imagetensor_to_array(path, array):
 
     randomletter = random.choice("abcdefghijklmnopqrstuvwxyz")
     randomletter += random.choice("abcdefghijklmnopqrstuvwxyz")
-    
+    randomletter += random.choice("abcdefghijklmnopqrstuvwxyz")
+    randomletter += random.choice("abcdefghijklmnopqrstuvwxyz")
 
     count = 0
     for filename in os.listdir(path):
@@ -58,29 +59,37 @@ def add_score_and_imagetensor_to_array(path, array):
 trainingdata = []
 
 add_score_and_imagetensor_to_array("mainstreams/zec/zec4/", trainingdata)
-# add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
-# add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
-# add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
+add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
+add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
+add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
 
 
 #sort by filename
 trainingdata.sort(key=lambda x: x[0])
 
+
+inputdata = []
+labeldata = []
+
 sequencedata = []
 
 inputstack = []
-labelstack = []
 
 #split training data into an array of 100 tensors
 for (name, input, label) in trainingdata:
     inputstack.append(input)
-    labelstack.append(label)
+    
 
-    if len(inputstack) == 200:
-        sequencedata.append([inputstack, labelstack])
+    if len(inputstack) == 2:
+        inputdata.append( torch.stack(inputstack) )
+        labeldata.append( label )
         
         inputstack = []
-        labelstack = []
+
+    if len(inputdata) == 50:
+        sequencedata.append( (torch.stack(inputdata), torch.stack(labeldata)) )
+        inputdata = []
+        labeldata = []
 
 
 # trainingdata = newtrainingdata
@@ -94,61 +103,45 @@ random.shuffle(sequencedata)
 # print( len(trainingdata) )
 
 
-
-
-
-#Define a LSTM that takes in a sequence of Tensors and the hidden state and outputs a single float at every step
-class LSTM(torch.nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, bias=True, batch_first=True):
-        super(LSTM, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.bias = bias
-        self.batch_first = batch_first
-        self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers, bias, batch_first=batch_first)
-        self.lfc1 = torch.nn.Linear(hidden_size, 70)
-        self.lfc2 = torch.nn.Linear(70, 1)
-        torch.nn.Linear
+#define a CNN that takes in 2 images with 
+class CNN(torch.nn.Module):
+    def __init__(self):
+        super(CNN, self).__init__()
 
         self.conv1 = torch.nn.Conv2d(3, 6, 5)
         self.pool = torch.nn.MaxPool2d(2, 2)
         self.conv2 = torch.nn.Conv2d(6, 16, 5)
-        self.fc1 = torch.nn.Linear(16 * 13 * 13, 400)
+        self.fc1 = torch.nn.Linear(2 * 16 * 13 * 13, 400)
         self.fc2 = torch.nn.Linear(400, 200)
-        self.fc3 = torch.nn.Linear(200, input_size)
+        self.fc3 = torch.nn.Linear(200, 120)
+        self.fc4 = torch.nn.Linear(120, 1)
     
-    def forward(self, x, hidden=None):
+    def forward(self, x):
 
-        #shape of [10, 3, 64, 64]
+        #shape of [batchsize, 2, 3, 64, 64]
+        #turn into [batchsize * 2, 3, 64, 64]
+        x = x.view(-1, 3, 64, 64)
 
         x = self.pool(torch.nn.functional.relu(self.conv1(x)))
         x = self.pool(torch.nn.functional.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 13 * 13)
+
+        #turn into [batchsize, 2 * 3 * 64 * 64]
+        x = x.view(-1, 2 * 16 * 13 * 13)
+
         x = torch.nn.functional.relu(self.fc1(x))
         x = torch.nn.functional.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = torch.nn.functional.relu(self.fc3(x))
+        x = self.fc4(x)
 
-        x = x.unsqueeze(0)
-
-
-        out, hidden = self.lstm(x, hidden)
-
-        out = torch.nn.functional.relu(self.lfc1(out))
-        out = self.lfc2(out)
-        
-        return out, hidden
+        return x
 
 
-lstm = LSTM(120, 120, 2)
+cnn = CNN()
 
 
 criterion = torch.nn.L1Loss()
-optimizer = torch.optim.Adam(lstm.parameters(), lr=0.0001 )
+optimizer = torch.optim.Adam(cnn.parameters(), lr=0.0001 )
 
-#torch.autograd.set_detect_anomaly(True)
-
-#input = trainingdata[0][1]
 
 
 average = 0.0
@@ -158,25 +151,21 @@ counter = 0
 
 for epoch in range(10):
 
-
-
     for (inputstack, labelstack) in sequencedata:
 
-        input = torch.stack(inputstack)
-        labels = torch.stack(labelstack)
-        labels = labels.unsqueeze(0)
-        #input with shape [10, 3, 64, 64]
+        input = inputstack
+        labels = labelstack
 
-        output, _ = lstm(input, None)
+        output = cnn(input)
 
-        print(output.shape)
+        # print( "out" + str(output) )
+        # print( "labels"+str(labels) )
 
-        lstm.zero_grad()
+        cnn.zero_grad()
 
         loss = criterion(output, labels)
 
-        print( loss.shape )
-
+        
         average += loss.item()
 
         loss.backward()
@@ -184,11 +173,13 @@ for epoch in range(10):
         optimizer.step()
 
         counter += 1
-        if counter % 10 == 0:
+        if counter % 100 == 0:
             print("loss: " + str(average / 10))
             average = 0.0
 
 
+
+torch.save(cnn.state_dict(), "cnn.pt")
 
 
 exit()
