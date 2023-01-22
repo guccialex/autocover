@@ -11,6 +11,9 @@ print("Loading data")
 
 imagedimensions = (64,64)
 
+batchsize = 6
+
+numberofimages = 2
 
 #turn test.png into a tensor
 def image_loader(image_name):
@@ -48,62 +51,82 @@ def add_score_and_imagetensor_to_array(path, array):
         #     break
 
         if filename.endswith("noncomm.jpg"):
-            array.append([listname, image_loader(path + filename), torch.FloatTensor([-1])])
+            array.append([listname, image_loader(path + filename), torch.FloatTensor([0])])
         elif filename.endswith("comm.jpg"):
             array.append([listname, image_loader(path + filename), torch.FloatTensor([1])])
         else:
             continue
 
 
+def process_data(imagetensor_to_array, databatchsize):
+
+    #sort by filename
+    imagetensor_to_array.sort(key=lambda x: x[0])
+
+
+    inputstack = []
+    inputandlabeldata = []
+
+    #split training data into an array of 100 tensors
+    for (name, input, label) in imagetensor_to_array:
+        inputstack.append(input)
+
+        if len(inputstack) == numberofimages:
+
+            inputandlabeldata.append( (torch.stack(inputstack), label) )
+            inputstack = []
+    
+
+    #shuffle the data
+    random.shuffle(inputandlabeldata)
+
+
+    inputdata = []
+    labeldata = []
+
+    sequencedata = []
+
+    for (input, label) in inputandlabeldata:
+
+        inputdata.append(input)
+        labeldata.append(label)
+
+        if len(inputdata) == databatchsize:
+            sequencedata.append( (torch.stack(inputdata), torch.stack(labeldata)) )
+            inputdata = []
+            labeldata = []
+    
+    return sequencedata
+
+
 
 trainingdata = []
 
+# add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
+# add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
+# add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
 add_score_and_imagetensor_to_array("mainstreams/zec/zec4/", trainingdata)
-add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
-add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
-add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
 
 
-#sort by filename
-trainingdata.sort(key=lambda x: x[0])
-
-
-inputdata = []
-labeldata = []
-
-sequencedata = []
-
-inputstack = []
-
-#split training data into an array of 100 tensors
-for (name, input, label) in trainingdata:
-    inputstack.append(input)
-    
-
-    if len(inputstack) == 2:
-        inputdata.append( torch.stack(inputstack) )
-        labeldata.append( label )
-        
-        inputstack = []
-
-    if len(inputdata) == 50:
-        sequencedata.append( (torch.stack(inputdata), torch.stack(labeldata)) )
-        inputdata = []
-        labeldata = []
-
-
-# trainingdata = newtrainingdata
+trainingdata = process_data(trainingdata, batchsize)
 
 #shuffle the training data
-random.shuffle(sequencedata)
-
-#trainingdataset = torch.utils.data.TensorDataset(torch.stack([x[1] for x in trainingdata]), torch.stack([x[2] for x in trainingdata]))
-# trainingdataloader = torch.utils.data.DataLoader(trainingdataset, batch_size=100,  num_workers=2)
-
-# print( len(trainingdata) )
+random.shuffle(trainingdata)
 
 
-#define a CNN that takes in 2 images with 
+testingdata = []
+
+add_score_and_imagetensor_to_array("mainstreams/zec/zec4/", testingdata)
+
+testingdata = process_data(testingdata, 1)
+
+random.shuffle(testingdata)
+
+
+
+
+
+#define a CNN that is a binary classification model
 class CNN(torch.nn.Module):
     def __init__(self):
         super(CNN, self).__init__()
@@ -111,10 +134,11 @@ class CNN(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(3, 6, 5)
         self.pool = torch.nn.MaxPool2d(2, 2)
         self.conv2 = torch.nn.Conv2d(6, 16, 5)
-        self.fc1 = torch.nn.Linear(2 * 16 * 13 * 13, 400)
-        self.fc2 = torch.nn.Linear(400, 200)
-        self.fc3 = torch.nn.Linear(200, 120)
-        self.fc4 = torch.nn.Linear(120, 1)
+        self.fc1 = torch.nn.Linear(numberofimages * 16 * 13 * 13, 1200)
+        self.fc2 = torch.nn.Linear(1200, 800)
+        self.fc3 = torch.nn.Linear(800, 400)
+        self.fc4 = torch.nn.Linear(400, 1)
+
     
     def forward(self, x):
 
@@ -126,12 +150,12 @@ class CNN(torch.nn.Module):
         x = self.pool(torch.nn.functional.relu(self.conv2(x)))
 
         #turn into [batchsize, 2 * 3 * 64 * 64]
-        x = x.view(-1, 2 * 16 * 13 * 13)
+        x = x.view(-1, numberofimages * 16 * 13 * 13)
 
         x = torch.nn.functional.relu(self.fc1(x))
         x = torch.nn.functional.relu(self.fc2(x))
         x = torch.nn.functional.relu(self.fc3(x))
-        x = self.fc4(x)
+        x = torch.sigmoid(self.fc4(x))
 
         return x
 
@@ -139,8 +163,8 @@ class CNN(torch.nn.Module):
 cnn = CNN()
 
 
-criterion = torch.nn.L1Loss()
-optimizer = torch.optim.Adam(cnn.parameters(), lr=0.0001 )
+criterion = torch.nn.BCELoss()
+optimizer = torch.optim.SGD(cnn.parameters(), lr=0.001 )
 
 
 
@@ -149,17 +173,14 @@ counter = 0
 
 #create a stack of 10 inputs
 
-for epoch in range(10):
+for epoch in range(100):
 
-    for (inputstack, labelstack) in sequencedata:
+    for (inputstack, labelstack) in trainingdata:
 
         input = inputstack
         labels = labelstack
 
         output = cnn(input)
-
-        # print( "out" + str(output) )
-        # print( "labels"+str(labels) )
 
         cnn.zero_grad()
 
@@ -173,13 +194,41 @@ for epoch in range(10):
         optimizer.step()
 
         counter += 1
-        if counter % 100 == 0:
+        if counter % 200 == 0:
             print("loss: " + str(average / 10))
             average = 0.0
 
+            positivecorrect = [0, 0]
+            negativecorrect = [0, 0]
+
+            for (inputstack, labelstack) in testingdata:
+
+                input = inputstack
+                labels = labelstack
+
+                output = cnn(input)
+
+                if labels.item() > 0.5:
+                    positivecorrect[1] += 1
+                    # if output.item() > 0.5:
+                    #     positivecorrect[0] += 1
+                    positivecorrect[0] += output.item()
+                else:
+                    negativecorrect[1] += 1
+                    # if output.item() < 0.5:
+                    #     negativecorrect[0] += 1
+                    negativecorrect[0] += output.item()
+    
+
+            print("positive accuracy: " + str(positivecorrect) + "  " + str(positivecorrect[0] / positivecorrect[1]))
+            print("negative accuracy: " + str(negativecorrect) + "  " + str(negativecorrect[0] / negativecorrect[1]))
+    
+    print("Epoch: " + str(epoch))
+    torch.save(cnn.state_dict(), "cnn2.pt")
+    random.shuffle(trainingdata)
 
 
-torch.save(cnn.state_dict(), "cnn.pt")
+
 
 
 exit()
