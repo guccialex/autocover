@@ -4,14 +4,15 @@ from PIL import Image
 import random
 import os
 
+
 print( torch.cuda.is_available() )
 
 
 print("Loading data")
 
-imagedimensions = (64,64)
+imagedimensions = (100,100)
 
-batchsize = 6
+batchsize = 30
 
 numberofimages = 2
 
@@ -31,6 +32,27 @@ def image_loader(image_name):
     # print( image.shape )
     #torch.Size([1, 3, 64, 64])
     return image
+
+
+
+
+from torchvision.models import resnet18, ResNet18_Weights
+
+# Initialize model
+weights = ResNet18_Weights.IMAGENET1K_V1
+resnetmodel = resnet18(weights=weights)
+
+# Set model to eval mode
+resnetmodel.eval()
+
+
+# input = image_loader("test.png")
+# input = input.unsqueeze(0)
+# print(input.shape)
+# output = model.forward(input)
+# print(output.shape)
+# exit()
+
 
 
 
@@ -102,9 +124,9 @@ def process_data(imagetensor_to_array, databatchsize):
 
 trainingdata = []
 
-# add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
-# add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
-# add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
+#add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
+#add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
+#add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
 add_score_and_imagetensor_to_array("mainstreams/zec/zec4/", trainingdata)
 
 
@@ -123,34 +145,40 @@ testingdata = process_data(testingdata, 1)
 random.shuffle(testingdata)
 
 
+#truncate testingdata to 500
+testingdata = testingdata[:500]
+
+print("Training data: " + str(len(trainingdata)) )
 
 
+
+# inputchannels = 20
+# outputchannels = 40
 
 #define a CNN that is a binary classification model
 class CNN(torch.nn.Module):
     def __init__(self):
         super(CNN, self).__init__()
 
-        self.conv1 = torch.nn.Conv2d(3, 6, 5)
-        self.pool = torch.nn.MaxPool2d(2, 2)
-        self.conv2 = torch.nn.Conv2d(6, 16, 5)
-        self.fc1 = torch.nn.Linear(numberofimages * 16 * 13 * 13, 1200)
-        self.fc2 = torch.nn.Linear(1200, 800)
-        self.fc3 = torch.nn.Linear(800, 400)
-        self.fc4 = torch.nn.Linear(400, 1)
+        # self.conv1 = torch.nn.Conv2d(3, inputchannels, 5 , stride=2)
+        # self.pool = torch.nn.MaxPool2d(2,2)
+        # self.conv2 = torch.nn.Conv2d(inputchannels, outputchannels, 5, stride=2 )
+        #numberofimages *
+        self.fc1 = torch.nn.Linear(numberofimages * 1000, 3000)
+        self.fc2 = torch.nn.Linear(3000, 1500)
+        self.fc3 = torch.nn.Linear(1500, 500)
+        self.fc4 = torch.nn.Linear(500, 1)
 
     
     def forward(self, x):
 
-        #shape of [batchsize, 2, 3, 64, 64]
-        #turn into [batchsize * 2, 3, 64, 64]
-        x = x.view(-1, 3, 64, 64)
+        # print("Start")
+        
+        x = x.view(-1, 3, imagedimensions[0], imagedimensions[1])
 
-        x = self.pool(torch.nn.functional.relu(self.conv1(x)))
-        x = self.pool(torch.nn.functional.relu(self.conv2(x)))
-
-        #turn into [batchsize, 2 * 3 * 64 * 64]
-        x = x.view(-1, numberofimages * 16 * 13 * 13)
+        x = resnetmodel.forward(x)
+        
+        x = x.view(-1, numberofimages * 1000)
 
         x = torch.nn.functional.relu(self.fc1(x))
         x = torch.nn.functional.relu(self.fc2(x))
@@ -163,10 +191,47 @@ class CNN(torch.nn.Module):
 cnn = CNN()
 
 
-criterion = torch.nn.BCELoss()
-optimizer = torch.optim.SGD(cnn.parameters(), lr=0.001 )
+# criterion = torch.nn.BCELoss()
+# optimizer = torch.optim.SGD(cnn.parameters(), lr=0.0005 )
+
+cnn.load_state_dict(torch.load("cnn2.pt"))
+
+#save as onnx
+testinputimage1 = image_loader("test.png")
+testinputimage2 = image_loader("test.png")
+testinput = torch.stack([testinputimage1, testinputimage2])
+testinput = testinput.detach()
+
+print( testinput.shape)
 
 
+torch.onnx.export(cnn,               # model being run
+                testinput,                         # model input (or a tuple for multiple inputs)
+                "cnnoutput.onnx",   # where to save the model (can be a file or file-like object)
+                export_params=True,        # store the trained parameter weights inside the model file
+                opset_version=10,          # the ONNX version to export the model to
+                do_constant_folding=True,  # whether to execute constant folding for optimization
+                input_names = ['input'],   # the model's input names
+                output_names = ['output'], # the model's output names
+                dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
+                            'output' : {0 : 'batch_size'}})
+
+# torch.onnx.export(cnn,               # model being run
+#                 testinput,                         # model input (or a tuple for multiple inputs)
+#                 "cnndeep.onnx",   # where to save the model (can be a file or file-like object)
+#                 export_params=True,        # store the trained parameter weights inside the model file
+#                 opset_version=10,          # the ONNX version to export the model to
+#                 do_constant_folding=True,  # whether to execute constant folding for optimization
+#                 input_names = ['input'],   # the model's input names
+#                 output_names = ['output'], # the model's output names
+#                 dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
+#                             'output' : {0 : 'batch_size'}})
+
+# #wait 10 seconds
+# import time
+# time.sleep(10)
+
+exit()
 
 average = 0.0
 counter = 0
@@ -174,7 +239,12 @@ counter = 0
 #create a stack of 10 inputs
 
 for epoch in range(100):
+    
 
+
+
+
+    random.shuffle(trainingdata)
     for (inputstack, labelstack) in trainingdata:
 
         input = inputstack
@@ -185,7 +255,6 @@ for epoch in range(100):
         cnn.zero_grad()
 
         loss = criterion(output, labels)
-
         
         average += loss.item()
 
@@ -194,7 +263,7 @@ for epoch in range(100):
         optimizer.step()
 
         counter += 1
-        if counter % 200 == 0:
+        if counter % len( trainingdata ) // 10 == 0:
             print("loss: " + str(average / 10))
             average = 0.0
 
@@ -225,7 +294,7 @@ for epoch in range(100):
     
     print("Epoch: " + str(epoch))
     torch.save(cnn.state_dict(), "cnn2.pt")
-    random.shuffle(trainingdata)
+
 
 
 
