@@ -8,74 +8,57 @@ import os
 print( torch.cuda.is_available() )
 
 
+# x = torch.hub.list('pytorch/vision:v0.14.1', force_reload=True)
+# ['alexnet', 'convnext_base', 'convnext_large', 'convnext_small', 'convnext_tiny', 'deeplabv3_mobilenet_v3_large', 'deeplabv3_resnet101', 'deeplabv3_resnet50', 'densenet121', 'densenet161', 'densenet169', 'densenet201', 'efficientnet_b0', 'efficientnet_b1', 'efficientnet_b2', 'efficientnet_b3', 'efficientnet_b4', 'efficientnet_b5', 'efficientnet_b6', 'efficientnet_b7', 'efficientnet_v2_l', 'efficientnet_v2_m', 'efficientnet_v2_s', 'fcn_resnet101', 'fcn_resnet50', 'get_model_weights', 'get_weight', 'googlenet', 'inception_v3', 'lraspp_mobilenet_v3_large', 'mnasnet0_5', 'mnasnet0_75', 'mnasnet1_0', 'mnasnet1_3', 'mobilenet_v2', 'mobilenet_v3_large', 'mobilenet_v3_small', 'raft_large', 'raft_small', 'regnet_x_16gf', 'regnet_x_1_6gf', 'regnet_x_32gf', 'regnet_x_3_2gf', 'regnet_x_400mf', 'regnet_x_800mf', 'regnet_x_8gf', 'regnet_y_128gf', 'regnet_y_16gf', 'regnet_y_1_6gf', 'regnet_y_32gf', 'regnet_y_3_2gf', 'regnet_y_400mf', 'regnet_y_800mf', 'regnet_y_8gf', 'resnet101', 'resnet152', 'resnet18', 'resnet34', 'resnet50', 'resnext101_32x8d', 'resnext101_64x4d', 'resnext50_32x4d', 'shufflenet_v2_x0_5', 'shufflenet_v2_x1_0', 'shufflenet_v2_x1_5', 'shufflenet_v2_x2_0', 'squeezenet1_0', 'squeezenet1_1', 'swin_b', 'swin_s', 'swin_t', 'vgg11', 'vgg11_bn', 'vgg13', 'vgg13_bn', 'vgg16', 'vgg16_bn', 'vgg19', 'vgg19_bn', 'vit_b_16', 'vit_b_32', 'vit_h_14', 'vit_l_16', 'vit_l_32', 'wide_resnet101_2', 'wide_resnet50_2']
+
+
+import cnn
+cnnmodel = cnn.mnasmodel
+
 print("Loading data")
 
-imagedimensions = (100,100)
+imagedimensions = (256,256)
+batchsize = 40
+numberofimages = 20
 
-batchsize = 30
 
-numberofimages = 2
-
-#turn test.png into a tensor
 def image_loader(image_name):
     loader = transforms.Compose([
-        transforms.Resize(imagedimensions[0]),
-        transforms.CenterCrop(imagedimensions[0]),
-        transforms.ToTensor()])
+    transforms.Resize((imagedimensions[0], imagedimensions[1])),
+    #transforms.CenterCrop(imagedimensions[0]),
+    transforms.ToTensor()])
     image = Image.open(image_name)
     #remove transparency
     image = image.convert('RGB')
     image = loader(image).float()
     image = torch.autograd.Variable(image) #, requires_grad=True)
-    # print( image.shape )
-    # image = image.unsqueeze(0)
-    # print( image.shape )
-    #torch.Size([1, 3, 64, 64])
     return image
 
+#turn test.png into a tensor
+def image_cnn_loader(image_name):
+    image = image_loader(image_name)
+    image = torch.unsqueeze(image, 0)
+    #image = cnnmodel.forward(image)
+    return torch.squeeze(image, 0).detach()
 
 
 
-from torchvision.models import resnet18, ResNet18_Weights
 
-# Initialize model
-weights = ResNet18_Weights.IMAGENET1K_V1
-resnetmodel = resnet18(weights=weights)
-
-# Set model to eval mode
-resnetmodel.eval()
-
-
-# input = image_loader("test.png")
-# input = input.unsqueeze(0)
-# print(input.shape)
-# output = model.forward(input)
-# print(output.shape)
-# exit()
 
 
 
 
 def add_score_and_imagetensor_to_array(path, array):
 
-    randomletter = random.choice("abcdefghijklmnopqrstuvwxyz")
-    randomletter += random.choice("abcdefghijklmnopqrstuvwxyz")
-    randomletter += random.choice("abcdefghijklmnopqrstuvwxyz")
-    randomletter += random.choice("abcdefghijklmnopqrstuvwxyz")
-
     count = 0
     for filename in os.listdir(path):
 
-        listname = randomletter + filename
-
-        # count += 1
-        # if count > 100000:
-        #     break
-
+        filepath = path + filename
+        
         if filename.endswith("noncomm.jpg"):
-            array.append([listname, image_loader(path + filename), torch.FloatTensor([0])])
+            array.append([filepath, image_cnn_loader(filepath), torch.FloatTensor([0])])
         elif filename.endswith("comm.jpg"):
-            array.append([listname, image_loader(path + filename), torch.FloatTensor([1])])
+            array.append([filepath, image_cnn_loader(filepath), torch.FloatTensor([1])])
         else:
             continue
 
@@ -86,21 +69,21 @@ def process_data(imagetensor_to_array, databatchsize):
     imagetensor_to_array.sort(key=lambda x: x[0])
 
 
-    inputstack = []
-    inputandlabeldata = []
+    tensorstack = []
+    tensorandlabeldata = []
 
     #split training data into an array of 100 tensors
-    for (name, input, label) in imagetensor_to_array:
-        inputstack.append(input)
+    for (filepath, tensor, label) in imagetensor_to_array:
+        tensorstack.append(tensor)
 
-        if len(inputstack) == numberofimages:
+        if len(tensorstack) == numberofimages:
 
-            inputandlabeldata.append( (torch.stack(inputstack), label) )
-            inputstack = []
+            tensorandlabeldata.append( (torch.stack(tensorstack), label) )
+            tensorstack = []
     
 
     #shuffle the data
-    random.shuffle(inputandlabeldata)
+    random.shuffle(tensorandlabeldata)
 
 
     inputdata = []
@@ -108,7 +91,7 @@ def process_data(imagetensor_to_array, databatchsize):
 
     sequencedata = []
 
-    for (input, label) in inputandlabeldata:
+    for (input, label) in tensorandlabeldata:
 
         inputdata.append(input)
         labeldata.append(label)
@@ -124,60 +107,48 @@ def process_data(imagetensor_to_array, databatchsize):
 
 trainingdata = []
 
-#add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
-#add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
-#add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
-add_score_and_imagetensor_to_array("mainstreams/zec/zec4/", trainingdata)
-
+add_score_and_imagetensor_to_array("mainstreams/zec/zec1/", trainingdata)
+add_score_and_imagetensor_to_array("mainstreams/zec/zec2/", trainingdata)
+add_score_and_imagetensor_to_array("mainstreams/zec/zec3/", trainingdata)
+#add_score_and_imagetensor_to_array("mainstreams/zec/zec4/", trainingdata)
+#add_score_and_imagetensor_to_array("mainstreams/zec/zectest/", trainingdata)
 
 trainingdata = process_data(trainingdata, batchsize)
 
-#shuffle the training data
-random.shuffle(trainingdata)
 
 
 testingdata = []
 
-add_score_and_imagetensor_to_array("mainstreams/zec/zec4/", testingdata)
+#add_score_and_imagetensor_to_array("mainstreams/zec/zec4/", testingdata)
+add_score_and_imagetensor_to_array("mainstreams/zec/zectest/", testingdata)
 
 testingdata = process_data(testingdata, 1)
-
-random.shuffle(testingdata)
 
 
 #truncate testingdata to 500
 testingdata = testingdata[:500]
 
-print("Training data: " + str(len(trainingdata)) )
 
+print("Training data: " + str(len(trainingdata)) + " testing data: " + str(len(testingdata)))
 
-
-# inputchannels = 20
-# outputchannels = 40
 
 #define a CNN that is a binary classification model
-class CNN(torch.nn.Module):
+class CommModel(torch.nn.Module):
     def __init__(self):
-        super(CNN, self).__init__()
+        super(CommModel, self).__init__()
 
         # self.conv1 = torch.nn.Conv2d(3, inputchannels, 5 , stride=2)
         # self.pool = torch.nn.MaxPool2d(2,2)
         # self.conv2 = torch.nn.Conv2d(inputchannels, outputchannels, 5, stride=2 )
         #numberofimages *
-        self.fc1 = torch.nn.Linear(numberofimages * 1000, 3000)
-        self.fc2 = torch.nn.Linear(3000, 1500)
-        self.fc3 = torch.nn.Linear(1500, 500)
+        self.fc1 = torch.nn.Linear(numberofimages * 1000, 2000)
+        self.fc2 = torch.nn.Linear(2000, 1000)
+        self.fc3 = torch.nn.Linear(1000, 500)
         self.fc4 = torch.nn.Linear(500, 1)
 
     
     def forward(self, x):
 
-        # print("Start")
-        
-        x = x.view(-1, 3, imagedimensions[0], imagedimensions[1])
-
-        x = resnetmodel.forward(x)
-        
         x = x.view(-1, numberofimages * 1000)
 
         x = torch.nn.functional.relu(self.fc1(x))
@@ -188,37 +159,29 @@ class CNN(torch.nn.Module):
         return x
 
 
-cnn = CNN()
+commmodel = CommModel()
 
 
-# criterion = torch.nn.BCELoss()
-# optimizer = torch.optim.SGD(cnn.parameters(), lr=0.0005 )
-
-cnn.load_state_dict(torch.load("cnn2.pt"))
-
-#save as onnx
-testinputimage1 = image_loader("test.png")
-testinputimage2 = image_loader("test.png")
-testinput = torch.stack([testinputimage1, testinputimage2])
-testinput = testinput.detach()
-
-print( testinput.shape)
+criterion = torch.nn.BCELoss()
+optimizer = torch.optim.SGD(commmodel.parameters(), lr=0.0005 )
 
 
-torch.onnx.export(cnn,               # model being run
-                testinput,                         # model input (or a tuple for multiple inputs)
-                "cnnoutput.onnx",   # where to save the model (can be a file or file-like object)
-                export_params=True,        # store the trained parameter weights inside the model file
-                opset_version=10,          # the ONNX version to export the model to
-                do_constant_folding=True,  # whether to execute constant folding for optimization
-                input_names = ['input'],   # the model's input names
-                output_names = ['output'], # the model's output names
-                dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
-                            'output' : {0 : 'batch_size'}})
+exit()
 
-# torch.onnx.export(cnn,               # model being run
+
+
+# #save as onnx
+# testinput = image_cnn_loader("test.png")
+# testinput = torch.unsqueeze(testinput, 0)
+
+# testinput = testinput.detach()
+
+# print( testinput.shape)
+
+
+# torch.onnx.export(resnetmodel,               # model being run
 #                 testinput,                         # model input (or a tuple for multiple inputs)
-#                 "cnndeep.onnx",   # where to save the model (can be a file or file-like object)
+#                 "models/resnet.onnx",   # where to save the model (can be a file or file-like object)
 #                 export_params=True,        # store the trained parameter weights inside the model file
 #                 opset_version=10,          # the ONNX version to export the model to
 #                 do_constant_folding=True,  # whether to execute constant folding for optimization
@@ -227,11 +190,36 @@ torch.onnx.export(cnn,               # model being run
 #                 dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
 #                             'output' : {0 : 'batch_size'}})
 
-# #wait 10 seconds
-# import time
-# time.sleep(10)
+# exit()
 
-exit()
+
+
+
+# testinput = trainingdata[0][0]
+
+# #take the first item in the batch so the testinput goes from size [30, 2, 1000]
+# #to size [1, 2, 1000]
+# testinput = testinput[0]
+# testinput = testinput.unsqueeze(0)
+
+# output = commmodel(testinput)
+# print(output)
+
+# print( testinput.shape)
+
+
+# torch.onnx.export(commmodel,               # model being run
+#                 testinput,                         # model input (or a tuple for multiple inputs)
+#                 "models/commmodel.onnx",   # where to save the model (can be a file or file-like object)
+#                 export_params=True,        # store the trained parameter weights inside the model file
+#                 opset_version=10,          # the ONNX version to export the model to
+#                 do_constant_folding=True,  # whether to execute constant folding for optimization
+#                 input_names = ['input'],   # the model's input names
+#                 output_names = ['output'], # the model's output names
+#                 dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
+#                             'output' : {0 : 'batch_size'}})
+
+# exit()
 
 average = 0.0
 counter = 0
@@ -240,19 +228,15 @@ counter = 0
 
 for epoch in range(100):
     
-
-
-
-
     random.shuffle(trainingdata)
     for (inputstack, labelstack) in trainingdata:
 
         input = inputstack
         labels = labelstack
 
-        output = cnn(input)
+        output = commmodel(input)
 
-        cnn.zero_grad()
+        commmodel.zero_grad()
 
         loss = criterion(output, labels)
         
@@ -263,7 +247,7 @@ for epoch in range(100):
         optimizer.step()
 
         counter += 1
-        if counter % len( trainingdata ) // 10 == 0:
+        if counter % len( trainingdata ) // 20 == 0:
             print("loss: " + str(average / 10))
             average = 0.0
 
@@ -275,7 +259,7 @@ for epoch in range(100):
                 input = inputstack
                 labels = labelstack
 
-                output = cnn(input)
+                output = commmodel(input)
 
                 if labels.item() > 0.5:
                     positivecorrect[1] += 1
@@ -293,7 +277,7 @@ for epoch in range(100):
             print("negative accuracy: " + str(negativecorrect) + "  " + str(negativecorrect[0] / negativecorrect[1]))
     
     print("Epoch: " + str(epoch))
-    torch.save(cnn.state_dict(), "cnn2.pt")
+    torch.save(commmodel.state_dict(), "models/commmodel.pt")
 
 
 

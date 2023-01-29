@@ -264,9 +264,118 @@ fn rename_folder_by_contents(btreemap: BTreeMap< OrderedFloat<f32>, bool>, image
 
 
 
+fn scale_down_images(folder: &Path){
+
+    //create a new folder in the same directory with a "-scaled" suffix
+    let newfolder = folder.parent().unwrap().join( format!("{}-scaled", folder.file_name().unwrap().to_str().unwrap()) );
+    std::fs::remove_dir_all(newfolder.clone()).unwrap_or(());
+    std::fs::create_dir(newfolder.clone());
+
+    for entry in std::fs::read_dir(folder).unwrap() {
+
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_file() {
+
+            let path = path.to_str().unwrap().to_string();
+            let outputpath = newfolder.join( path.split("/").last().unwrap() ).to_str().unwrap().to_string();
+
+            let child = Command::new("convert")
+            .arg(path)
+            .arg("-resize")
+            .arg("275x275!")
+            .arg("-quality")
+            .arg("80")
+            .arg("-strip")
+            .arg( outputpath )
+            .spawn();
+
+
+
+            
+        }
+    }
+            
+
+
+
+}
+
 
 
 fn main() {
+
+    let path = Path::new("./mainstreams/zec/zec1");
+    scale_down_images(path);
+
+    panic!("done");
+
+    let resnetmodel = predict::ResNet::new();
+
+    let folder = "./mainstreams/zec/zec1";
+    let mut filesinfolder = Vec::new();
+    //iterate over all the files in the folder
+    for entry in std::fs::read_dir(folder).unwrap() {
+
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_file() {
+
+            let path = path.to_str().unwrap().to_string();
+            
+            filesinfolder.push(path);
+        }
+    }
+
+
+
+    //sort the files
+    filesinfolder.sort();
+
+    let mut predictions = Vec::new();
+
+    for index in 0..filesinfolder.len()-1{
+
+        let index = index * 4;
+
+        let path1 = &filesinfolder[index];
+        let path2 = &filesinfolder[index+1];
+
+        let prediction = resnetmodel.predict(&path1, &path2);
+
+        let prediction = 1.0 / (1.0 - prediction);
+
+        predictions.push(prediction);
+
+
+        if index % 10 == 0{
+
+            //get the sum of the last 10 predictions
+            let mut sum = 0.0;
+            for i in 0..10{
+                
+                if predictions.len() > 11{
+                    sum += predictions[ predictions.len() -i ];
+                }
+                
+            }
+
+            println!("path {:?}, prediction: {}", (path1, path2), sum);
+                
+        }
+
+    }
+
+
+
+
+    
+}
+
+
+
+
+pub fn organize(){
 
 
     let folderpath = "./mainstreams/zec";
@@ -497,6 +606,5 @@ fn main() {
 
     // panic!("done");
     
+
 }
-
-
